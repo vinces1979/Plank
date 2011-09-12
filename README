@@ -1,0 +1,8 @@
+Plank IRC Ranking bot
+
+nick++: give a point to nick
+nick--: remove a point from a nick
+!myrank: find out your ranking
+!ranks: show all ranking for this channel
+!players: list the players with points
+
