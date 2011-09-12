@@ -20,15 +20,16 @@ class IRCProtocol(PlankIRCProtocol):
         elif message.endswith("--"):
             incr = -1
         if incr is not None:
-            nick = message.rstrip("+").rstrip("-").rstrip(":")
+            nick = message.rstrip("+").rstrip("-").strip().rstrip(":")
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
-            self.msg(channel, "%ss new ranking is %s" % (nick, count))
+            self.msg(channel, "%s your ranking is now %s" % (nick, count))
 
     def command_help(self, nick, channel, rest):
         msgs = [
             "nick++ : give a point to nick",
             "nick-- : remove a point from a nick",
             "!myrank: find out your ranking",
+            "!rank nick: show the rank for this nick",
             "!ranks: show all ranking for this channel",
             "!players: list the players with points",
         ]
@@ -39,6 +40,12 @@ class IRCProtocol(PlankIRCProtocol):
     def command_myrank(self, nick, channel, rest):
         count = RDB.hget("plank:%s" % channel, nick)
         self.msg(channel, "%s your ranking is %s" % (nick, count or 0))
+        return False
+
+    def command_rank(self, nick, channel, rest):
+        other_nick = rest.rstrip(":")
+        data = RDB.hget("plank:%s" % channel, other_nick)
+        self.msg(channel, "Rank: %s %s" % (other_nick, data))
         return False
 
     def command_ranks(self, nick, channel, rest):
@@ -55,8 +62,8 @@ class IRCProtocol(PlankIRCProtocol):
 
 class Factory(protocol.ReconnectingClientFactory):
     protocol = IRCProtocol
-    channels = ['##PlankBot']
 
-    def __init__(self, trigger="!"):
+    def __init__(self, trigger="!", channels=None):
+        self.channels = channels or []
         self.trigger = "!"
 
