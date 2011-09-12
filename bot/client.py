@@ -82,9 +82,9 @@ class PlankIRCProtocol(irc.IRCClient):
     def _show_error(self, failure):
         return failure.getErrorMessage()
 
-    def command_join(self, rest, channel):
+    def command_join(self, nick, channel, rest):
         self.join(channel)
 
-    def command_ping(self, rest):
+    def command_ping(self, nick, channel, rest):
         return 'Pong.'
 
