@@ -36,7 +36,9 @@ class PlankIRCProtocol(irc.IRCClient):
         del self._namescallback[channel]
 
     def signedOn(self):
+        print "signed on"
         for channel in self.factory.channels:
+            print "joining", channel
             self.join(channel)
 
     def _store_names(self, nicklist, channel):
@@ -46,6 +48,7 @@ class PlankIRCProtocol(irc.IRCClient):
         self.names(channel).addCallback(self._store_names, channel)
 
     def joined(self, channel):
+        print "joined", channel
         self.get_names(channel)
 
     def action(self, user, channel, msg):
@@ -76,7 +79,7 @@ class PlankIRCProtocol(irc.IRCClient):
         if msg is False:
             return
         if nick:
-            msg = '%s, %s' % (nick, msg)
+            msg = '%s: %s' % (nick, msg)
         self.msg(target, msg)
 
     def _show_error(self, failure):
