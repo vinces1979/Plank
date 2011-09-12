@@ -9,10 +9,10 @@ from bot.client import PlankIRCProtocol
 
 RDB = redis.Redis()
 
-Nick_point_re = re.compile(r"(.*?\w+)([,:\s]*[+-]{2})")
+Nick_point_re = re.compile(r"(.*?\w+)([,:\s]*[+-]{2})$")
 URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
-BAD_WORDS = ["lol", "lmfao"]
 
+BAD_WORDS = ["lol", "lmfao"]
 DEGRADED = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
 class IRCProtocol(PlankIRCProtocol):
@@ -35,6 +35,9 @@ class IRCProtocol(PlankIRCProtocol):
         if check:
             incr = 1 if message.endswith("++") else -1
             nick = check.groups()[0]
+            if nick.rstrip("_") == self.nickname:
+                self.msg(channel, "thanks but I don't need any stinking points. I once punch Chuck Norris!")
+                return
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
             self.msg(channel, "%s your ranking is now %s" % (nick, count))
         elif URL_re.search(message):
@@ -53,10 +56,13 @@ class IRCProtocol(PlankIRCProtocol):
         msgs = [
             "nick++ : give a point to nick",
             "nick-- : remove a point from a nick",
+            "!badwords: lose a point when you say these words",
             "!myrank: find out your ranking",
             "!rank nick: show the rank for this nick",
             "!ranks: show all ranking for this channel",
             "!players: list the players with points",
+            "Extra points:",
+            "   Get a point for every url posted",
         ]
         for msg in msgs:
             self.msg(channel, msg)
