@@ -1,3 +1,6 @@
+"""Data and message handling"""
+
+import re
 
 import redis
 from twisted.internet import protocol
@@ -5,6 +8,8 @@ from twisted.internet import protocol
 from bot.client import PlankIRCProtocol
 
 RDB = redis.Redis()
+
+Nick_re = re.compile(r"(.*?\w+)([:+]*)")
 
 class IRCProtocol(PlankIRCProtocol):
     nickname = 'plank'
@@ -20,7 +25,9 @@ class IRCProtocol(PlankIRCProtocol):
         elif message.endswith("--"):
             incr = -1
         if incr is not None:
-            nick = message.rstrip("+").rstrip("-").strip().rstrip(":")
+            check = Nick_re.search(nick)
+            if check:
+                nick = check.groups()[0]
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
             self.msg(channel, "%s your ranking is now %s" % (nick, count))
 
@@ -62,6 +69,7 @@ class IRCProtocol(PlankIRCProtocol):
 
 class Factory(protocol.ReconnectingClientFactory):
     protocol = IRCProtocol
+    channels = []
 
     def __init__(self, trigger="!", channels=None):
         self.channels = channels or []
