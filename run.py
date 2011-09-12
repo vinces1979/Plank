@@ -12,9 +12,10 @@ from bot import Factory
 HOST, PORT = 'irc.freenode.net', 6667
 TRIGGER = "!"
 CHANNELS = ["##plankbot"]
+BAD = ["lol", "riders", "lmfao"]
 
 if __name__ == '__main__':
-    reactor.connectTCP(HOST, PORT, Factory(TRIGGER, CHANNELS))
+    reactor.connectTCP(HOST, PORT, Factory(TRIGGER, CHANNELS, BAD))
     log.startLogging(sys.stdout)
     reactor.run()
 

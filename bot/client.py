@@ -40,6 +40,8 @@ class PlankIRCProtocol(irc.IRCClient):
         for channel in self.factory.channels:
             print "joining", channel
             self.join(channel)
+        if hasattr(self, "afterSignOn"):
+            self.afterSignOn()
 
     def _store_names(self, nicklist, channel):
         pass
@@ -60,6 +62,7 @@ class PlankIRCProtocol(irc.IRCClient):
     def privmsg(self, user, channel, message):
         nick, _, host = user.partition('!')
         message = message.strip()
+        print "privmsg",  nick, _, host, message
         self.handle_message(user, channel, nick, host, message)
         if not message.startswith(self.factory.trigger):
             return
@@ -69,7 +72,7 @@ class PlankIRCProtocol(irc.IRCClient):
             return
         d = defer.maybeDeferred(func, nick, channel, rest)
         d.addErrback(self._show_error)
-        if channel == self.nickname:
+        if channel.rstrip("_") == self.nickname:
             d.addCallback(self._send_message, nick)
         else:
             d.addCallback(self._send_message, channel, nick)

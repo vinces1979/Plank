@@ -9,7 +9,11 @@ from bot.client import PlankIRCProtocol
 
 RDB = redis.Redis()
 
-Nick_re = re.compile(r"(.*?\w+)([:+]*)")
+Nick_point_re = re.compile(r"(.*?\w+)([,:\s]*[+-]{2})")
+URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
+BAD_WORDS = ["lol", "lmfao"]
+
+DEGRADED = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
 class IRCProtocol(PlankIRCProtocol):
     nickname = 'plank'
@@ -18,18 +22,32 @@ class IRCProtocol(PlankIRCProtocol):
         nicks = [x.strip("@") for x in nicklist if x != self.nickname]
         RDB.hset("plank:%s" % channel, "_nicks", nicks)
 
+    def afterSignOn(self):
+        global BAD_WORDS, DEGRADED
+        if self.factory.badwords:
+            BAD_WORDS = self.factory.badwords
+            DEGRADED  = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
+
     def handle_message(self, user, channel, nick, host, message):
+        print "hanlde message", user, channel, nick, host, message
         incr = None
-        if message.endswith("++"):
-            incr = 1
-        elif message.endswith("--"):
-            incr = -1
-        if incr is not None:
-            check = Nick_re.search(nick)
-            if check:
-                nick = check.groups()[0]
+        check = Nick_point_re.search(message)
+        if check:
+            incr = 1 if message.endswith("++") else -1
+            nick = check.groups()[0]
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
             self.msg(channel, "%s your ranking is now %s" % (nick, count))
+        elif URL_re.search(message):
+            url = URL_re.search(message).group()
+            incr = 1
+            if "reddit.com" in url:
+                incr += 1
+            count = RDB.hincrby("plank:%s" % channel, nick, incr)
+            self.msg(channel, "%s got %s poinst(s)for sharing their internet awesomeness" % (nick, incr))
+        elif DEGRADED.search(message):
+            print "decgraded word found", channel, nick
+            count = RDB.hincrby("plank:%s" % channel, nick, -1)
+            self.msg(channel, "%s lost a point for saying %s" % (nick, DEGRADED.search(message).group()))
 
     def command_help(self, nick, channel, rest):
         msgs = [
@@ -42,6 +60,10 @@ class IRCProtocol(PlankIRCProtocol):
         ]
         for msg in msgs:
             self.msg(channel, msg)
+        return False
+
+    def command_badwords(self, nick, channel, rest):
+        self.msg(channel, ", ".join(BAD_WORDS))
         return False
 
     def command_myrank(self, nick, channel, rest):
@@ -71,7 +93,8 @@ class Factory(protocol.ReconnectingClientFactory):
     protocol = IRCProtocol
     channels = []
 
-    def __init__(self, trigger="!", channels=None):
+    def __init__(self, trigger="!", channels=None, bad=None):
         self.channels = channels or []
         self.trigger = "!"
+        self.badwords = bad or []
 
