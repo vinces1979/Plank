@@ -35,6 +35,17 @@ class PlankIRCProtocol(irc.IRCClient):
             cb.callback(namelist)
         del self._namescallback[channel]
 
+    def irc_JOIN(self, prefix, params):
+        """
+        Called when a user joins a channel.
+        """
+        nick = prefix.split('!')[0]
+        channel = params[-1]
+        if nick == self.nickname:
+            self.joined(channel)
+        else:
+            self.handle_nick_join(nick, channel)
+
     def signedOn(self):
         print "signed on"
         for channel in self.factory.channels:
@@ -43,11 +54,8 @@ class PlankIRCProtocol(irc.IRCClient):
         if hasattr(self, "afterSignOn"):
             self.afterSignOn()
 
-    def _store_names(self, nicklist, channel):
-        pass
-
     def get_names(self, channel):
-        self.names(channel).addCallback(self._store_names, channel)
+        self.names(channel).addCallback(self.handle_nicklist, channel)
 
     def joined(self, channel):
         print "joined", channel
@@ -55,6 +63,7 @@ class PlankIRCProtocol(irc.IRCClient):
 
     def action(self, user, channel, msg):
         user = user.split('!', 1)[0]
+        print user, channel, msg
 
     def handle_message(self, user, channel, nick, host, message):
         pass

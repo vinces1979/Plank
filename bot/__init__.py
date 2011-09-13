@@ -15,12 +15,26 @@ URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-
 BAD_WORDS = ["lol", "lmfao"]
 DEGRADED = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
+def cleanNick(nick):
+    nick =  nick.strip("@")
+    if nick.lower().endswith("afk"):
+        nick = nick[:-3]
+    return nick
+
 class IRCProtocol(PlankIRCProtocol):
     nickname = 'plank'
+    nicklist_key = "plank:%s:nicks"
 
-    def _store_names(self, nicklist, channel):
-        nicks = [x.strip("@") for x in nicklist if x != self.nickname]
-        RDB.hset("plank:%s" % channel, "_nicks", nicks)
+    def handle_nicklist(self, nicklist, channel):
+        print "storing>>", nicklist, channel
+        key = self.nicklist_key % channel
+        for nick in nicklist:
+            if nick != self.nickname:
+                RDB.sadd(key, cleanNick(nick))
+
+    def handle_nick_join(self, nick, channel):
+        nick = cleanNick(nick)
+        RDB.sadd(self.nicklist_key % channel, nick)
 
     def afterSignOn(self):
         global BAD_WORDS, DEGRADED
@@ -29,14 +43,18 @@ class IRCProtocol(PlankIRCProtocol):
             DEGRADED  = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
     def handle_message(self, user, channel, nick, host, message):
-        print "hanlde message", user, channel, nick, host, message
+        print "handle message", user, channel, nick, host, message
         incr = None
         check = Nick_point_re.search(message)
         if check:
             incr = 1 if message.endswith("++") else -1
-            nick = check.groups()[0]
+            nick = cleanNick(check.groups()[0])
             if nick.rstrip("_") == self.nickname:
-                self.msg(channel, "thanks but I don't need any stinking points. I once punch Chuck Norris!")
+                self.msg(channel, "thanks but I don't need any stinking points. I once punched Chuck Norris!")
+                return
+            channel_nicks = RDB.smembers(self.nicklist_key % channel)
+            if nick not in channel_nicks:
+                print "unknown nick"
                 return
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
             self.msg(channel, "%s your ranking is now %s" % (nick, count))
@@ -46,7 +64,7 @@ class IRCProtocol(PlankIRCProtocol):
             if "reddit.com" in url:
                 incr += 1
             count = RDB.hincrby("plank:%s" % channel, nick, incr)
-            self.msg(channel, "%s got %s poinst(s)for sharing their internet awesomeness" % (nick, incr))
+            self.msg(channel, "%s got %s point(s)for sharing their internet awesomeness" % (nick, incr))
         elif DEGRADED.search(message):
             print "decgraded word found", channel, nick
             count = RDB.hincrby("plank:%s" % channel, nick, -1)
@@ -60,9 +78,10 @@ class IRCProtocol(PlankIRCProtocol):
             "!myrank: find out your ranking",
             "!rank nick: show the rank for this nick",
             "!ranks: show all ranking for this channel",
+            "!joke: grab random joke from store",
             "!players: list the players with points",
             "Extra points:",
-            "   Get a point for every url posted",
+            "   Get points for urls posted",
         ]
         for msg in msgs:
             self.msg(channel, msg)
@@ -70,6 +89,24 @@ class IRCProtocol(PlankIRCProtocol):
 
     def command_badwords(self, nick, channel, rest):
         self.msg(channel, ", ".join(BAD_WORDS))
+        return False
+
+    def command_joke(self, nick, channel, rest):
+        joke = RDB.srandmember("jokes")
+        if joke:
+            self.msg(channel, joke)
+        else:
+            self.msg(channel, "Sorry, I am boring and don't know any good jokes")
+        return False
+
+    def command_addjoke(self, nick, channel, rest):
+        if RDB.sadd("jokes", rest):
+            self.msg(channel, "added")
+        return False
+
+    def command_deljoke(self, nick, channel, rest):
+        if RDB.srem("jokes", rest):
+            self.msg(channel, "gone")
         return False
 
     def command_myrank(self, nick, channel, rest):
@@ -80,7 +117,10 @@ class IRCProtocol(PlankIRCProtocol):
     def command_rank(self, nick, channel, rest):
         other_nick = rest.rstrip(":")
         data = RDB.hget("plank:%s" % channel, other_nick)
-        self.msg(channel, "Rank: %s %s" % (other_nick, data))
+        if not data:
+            self.msg(channel, "unknown nick %s" % other_nick)
+        else:
+            self.msg(channel, "Rank: %s %s" % (other_nick, data))
         return False
 
     def command_ranks(self, nick, channel, rest):
@@ -91,9 +131,13 @@ class IRCProtocol(PlankIRCProtocol):
             self.msg(channel, "%s: %s" % (nick, value))
         return False
 
+    def command_nicklist(self, nick, channel, rest):
+       key = "plank:%s:nicks" % channel
+       return ", ".join(RDB.smembers(key))
+
     def command_players(self, nick, channel, rest):
        data = RDB.hgetall("plank:%s" % channel)
-       return ", ".join(key for key,value in data.items() if value and key != "_nicks")
+       return ", ".join(key for key,value in data.items())
 
 class Factory(protocol.ReconnectingClientFactory):
     protocol = IRCProtocol
