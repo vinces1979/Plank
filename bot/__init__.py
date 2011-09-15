@@ -79,6 +79,7 @@ class IRCProtocol(PlankIRCProtocol):
             "!rank nick: show the rank for this nick",
             "!ranks: show all ranking for this channel",
             "!joke: grab random joke from store",
+            "!joketotal: return the number of jokes stored",
             "!players: list the players with points",
             "Extra points:",
             "   Get points for urls posted",
@@ -90,6 +91,9 @@ class IRCProtocol(PlankIRCProtocol):
     def command_badwords(self, nick, channel, rest):
         self.msg(channel, ", ".join(BAD_WORDS))
         return False
+
+    def command_joketotal(self, nick, channel, rest):
+        return RDB.scard("jokes")
 
     def command_joke(self, nick, channel, rest):
         joke = RDB.srandmember("jokes")
