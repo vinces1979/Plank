@@ -124,8 +124,11 @@ class IRCProtocol(PlankIRCProtocol):
         return False
 
     def command_ranks(self, nick, channel, rest):
+        print channel
         data = RDB.hgetall("plank:%s" % channel)
-        data.pop("_nicks")
+        if "_nicks" in data:
+            data.pop("_nicks")
+        print data
         data = sorted(data.items(), key=lambda nick: int(nick[1]) , reverse=1)
         for nick, value in data:
             self.msg(channel, "%s: %s" % (nick, value))
