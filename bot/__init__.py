@@ -1,17 +1,20 @@
 """Data and message handling"""
 
 import re
+import cPickle as pickle
 
+from lxml import html
 import redis
-from twisted.internet import protocol
-
+from twisted.internet import reactor, protocol
+from twisted.web import client
+from twisted.web.client import HTTPClientFactory, _parse
 from bot.client import PlankIRCProtocol
 
 RDB = redis.Redis()
 
 Nick_point_re = re.compile(r"(.*?\w+)([,:\s]*[+-]{2})$")
-URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
 
+URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
 BAD_WORDS = ["lol", "lmfao"]
 DEGRADED = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
@@ -20,6 +23,46 @@ def cleanNick(nick):
     if nick.lower().endswith("afk"):
         nick = nick[:-3]
     return nick
+
+def getPage(url, contextFactory=None, *args, **kwargs):
+    scheme, host, port, path = _parse(url)
+    factory = HTTPClientFactory(url, *args, **kwargs)
+    reactor.connectTCP(host, port, factory)
+    return factory
+
+PORNWORDS = ['fuck',
+             'pussy',
+             'tits',
+             'anal',
+             'porn',
+             'xxx',
+             'viagra',
+             'sex',
+             'cams',
+             'blowjob',
+             'handjob',
+             'threesome',
+             'dildo',
+             'cock',
+             'cum',
+             'lemonparty',
+             'nudity',
+             '100% free',
+             'adult video',
+             '18+',
+             'adult oriented',
+             'completely free',
+             'cute girls',
+             'nsfw',
+             'butt',
+             'boobs',
+             'shemale',
+             'dick',
+             'ass',
+]
+
+PORN_re = re.compile("|".join(r"\b%s\b" % w for w in PORNWORDS), re.I)
+
 
 class IRCProtocol(PlankIRCProtocol):
     nickname = 'plank'
@@ -36,19 +79,73 @@ class IRCProtocol(PlankIRCProtocol):
         nick = cleanNick(nick)
         RDB.sadd(self.nicklist_key % channel, nick)
 
+    def handle_kick(self, op, channel, nick, msg):
+        count = RDB.hincrby("plank:%s" % channel, cleanNick(op), -1)
+        self.msg(channel, "%s loses a point for being bossy" % op)
+
     def afterSignOn(self):
         global BAD_WORDS, DEGRADED
         if self.factory.badwords:
             BAD_WORDS = self.factory.badwords
             DEGRADED  = re.compile( "|".join(r"\b%s\b" % w for w in BAD_WORDS) )
 
+    def url_callback(self, data, factory, url, nick, channel):
+        url_type = "something awesome"
+        incr = 1
+        ct = factory.response_headers['content-type']
+        parse_html = False
+        extra = ""
+        if ct:
+            if "image" in ct[0]:
+                incr += 1
+                url_type = "an image with the class"
+            elif "html" in ct[0]:
+                parse_html = True
+                url_type = "a web page"
+
+        if "reddit.com" in url:
+            incr += 1
+            url_type = "some reddit words of wisdom"
+
+        prob = 1
+        if parse_html:
+            words = PORN_re.findall(html.fromstring(data).text_content())
+            total = len(words)
+            if total <= 2:
+                prob = 1
+            elif 2 < total < 5:
+                prob = 10
+            elif 5 >= total < 15:
+                prob = 40
+            elif total > 15:
+                prob = 90
+        RDB.hset("plank:urls", url,
+                        pickle.dumps({'prob': prob, 'url_type':url_type}))
+        self.url_points(nick, channel, incr, prob, url_type)
+
+    def url_points(self, nick, channel, incr, prob, url_type):
+        if prob == 10:
+            incr += 1
+        if prob == 40:
+            incr += 2
+        if prob == 90:
+            incr += 4
+        extra = ""
+        if url_type == "a web page":
+            extra = "[ %s%% chance of porn ]" % prob
+        count = RDB.hincrby("plank:%s" % channel, nick, incr)
+        self.msg(channel, "%s got %s point(s)for sharing %s %s" % (nick, incr, url_type, extra))
+
     def handle_message(self, user, channel, nick, host, message):
         print "handle message", user, channel, nick, host, message
         incr = None
         check = Nick_point_re.search(message)
+        author = cleanNick(nick)
         if check:
             incr = 1 if message.endswith("++") else -1
             nick = cleanNick(check.groups()[0])
+            if nick == author:
+                return False
             if nick.rstrip("_") == self.nickname:
                 self.msg(channel, "thanks but I don't need any stinking points. I once punched Chuck Norris!")
                 return
@@ -60,11 +157,13 @@ class IRCProtocol(PlankIRCProtocol):
             self.msg(channel, "%s your ranking is now %s" % (nick, count))
         elif URL_re.search(message):
             url = URL_re.search(message).group()
-            incr = 1
-            if "reddit.com" in url:
-                incr += 1
-            count = RDB.hincrby("plank:%s" % channel, nick, incr)
-            self.msg(channel, "%s got %s point(s)for sharing their internet awesomeness" % (nick, incr))
+            prob = RDB.hget("plank:urls", url)
+            if not prob:
+                d = getPage(url)
+                d.deferred.addCallback(self.url_callback, d, url, nick, channel)
+            else:
+                url = pickle.loads(prob)
+                self.url_points(nick, channel, 1, url['prob'], url['url_type'])
         elif DEGRADED.search(message):
             print "decgraded word found", channel, nick
             count = RDB.hincrby("plank:%s" % channel, nick, -1)
