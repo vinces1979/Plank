@@ -46,6 +46,13 @@ class PlankIRCProtocol(irc.IRCClient):
         else:
             self.handle_nick_join(nick, channel)
 
+    def irc_KICK(self, user, params):
+        op = user.split("!")[0]
+        channel, nick, msg = params
+        if nick == self.nickname:
+            self.join(channel)
+            self.handle_kick(op, channel, nick, msg)
+
     def signedOn(self):
         print "signed on"
         for channel in self.factory.channels:
