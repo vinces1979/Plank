@@ -53,6 +53,12 @@ class PlankIRCProtocol(irc.IRCClient):
             self.join(channel)
             self.handle_kick(op, channel, nick, msg)
 
+    def irc_NICK(self, prefix, params):
+        oldnick = prefix.split("!")[0]
+        newnick = params[0]
+        if hasattr(self, 'handle_nick_change'):
+            self.handle_nick_change(oldnick, newnick)
+
     def signedOn(self):
         print "signed on"
         for channel in self.factory.channels:
@@ -65,7 +71,6 @@ class PlankIRCProtocol(irc.IRCClient):
         self.names(channel).addCallback(self.handle_nicklist, channel)
 
     def joined(self, channel):
-        print "joined", channel
         self.get_names(channel)
 
     def action(self, user, channel, msg):
@@ -80,7 +85,8 @@ class PlankIRCProtocol(irc.IRCClient):
         message = message.strip()
         print "privmsg",  nick, _, host, message
         self.handle_message(user, channel, nick, host, message)
-        if not message.startswith(self.factory.trigger):
+        private = channel.rstrip("_") == self.nickname
+        if not private and not message.startswith(self.factory.trigger):
             return
         command, sep, rest = message.lstrip(self.factory.trigger).partition(' ')
         func = getattr(self, 'command_%s' % command, None)
@@ -97,15 +103,22 @@ class PlankIRCProtocol(irc.IRCClient):
         print "%r %r" % (msg, target)
         if msg is False:
             return
-        if nick:
-            msg = '%s: %s' % (nick, msg)
-        self.msg(target, msg)
+
+        if isinstance(msg, (list, tuple, set)):
+            for m in msg:
+                self.msg(target, m)
+        else:
+            if nick:
+                msg = '%s: %s' % (nick, msg)
+            self.msg(target, msg)
 
     def _show_error(self, failure):
         return failure.getErrorMessage()
 
     def command_join(self, nick, channel, rest):
-        self.join(channel)
+        rest = rest.split(" ")[0].strip()
+        self.join(rest)
+        return "Joining %s" % rest
 
     def command_ping(self, nick, channel, rest):
         return 'Pong.'

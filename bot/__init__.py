@@ -78,10 +78,17 @@ class IRCProtocol(PlankIRCProtocol):
     def handle_nick_join(self, nick, channel):
         nick = cleanNick(nick)
         RDB.sadd(self.nicklist_key % channel, nick)
+        count = RDB.hincrby("plank:%s" % channel, nick, 1)
+        self.me(channel, "gives %s a point comoing to play" % (nick))
 
     def handle_kick(self, op, channel, nick, msg):
         count = RDB.hincrby("plank:%s" % channel, cleanNick(op), -1)
         self.msg(channel, "%s loses a point for being bossy" % op)
+
+    def handle_nick_change(self, oldnick, newnick):
+        nick = cleanNick(newnick)
+        for channel in self.factory.channels:
+            RDB.sadd(self.nicklist_key % channel, nick)
 
     def afterSignOn(self):
         global BAD_WORDS, DEGRADED
@@ -134,7 +141,7 @@ class IRCProtocol(PlankIRCProtocol):
         if url_type == "a web page":
             extra = "[ %s%% chance of porn ]" % prob
         count = RDB.hincrby("plank:%s" % channel, nick, incr)
-        self.msg(channel, "%s got %s point(s)for sharing %s %s" % (nick, incr, url_type, extra))
+        self.me(channel, "gives %s %s point%s for sharing %s %s" % (nick, incr, "s" if incr > 1 else "", url_type, extra))
 
     def handle_message(self, user, channel, nick, host, message):
         print "handle message", user, channel, nick, host, message
@@ -183,13 +190,10 @@ class IRCProtocol(PlankIRCProtocol):
             "Extra points:",
             "   Get points for urls posted",
         ]
-        for msg in msgs:
-            self.msg(channel, msg)
-        return False
+        return msgs
 
     def command_badwords(self, nick, channel, rest):
-        self.msg(channel, ", ".join(BAD_WORDS))
-        return False
+        return ", ".join(BAD_WORDS)
 
     def command_joketotal(self, nick, channel, rest):
         return RDB.scard("jokes")
@@ -197,45 +201,50 @@ class IRCProtocol(PlankIRCProtocol):
     def command_joke(self, nick, channel, rest):
         joke = RDB.srandmember("jokes")
         if joke:
-            self.msg(channel, joke)
+            return joke
         else:
-            self.msg(channel, "Sorry, I am boring and don't know any good jokes")
-        return False
+            return "Sorry, I am boring and don't know any good jokes"
 
     def command_addjoke(self, nick, channel, rest):
         if RDB.sadd("jokes", rest):
-            self.msg(channel, "added")
-        return False
+            return "added"
+        return "error"
 
     def command_deljoke(self, nick, channel, rest):
         if RDB.srem("jokes", rest):
-            self.msg(channel, "gone")
-        return False
+            return "gone"
+        return "error"
 
     def command_myrank(self, nick, channel, rest):
-        count = RDB.hget("plank:%s" % channel, nick)
-        self.msg(channel, "%s your ranking is %s" % (nick, count or 0))
-        return False
+        if rest:
+            rest = rest.split(" ")[0].strip()
+        count = RDB.hget("plank:%s" % (rest or channel), nick)
+
+        msg = "your ranking is %s" % (count or 0)
+        if rest:
+            msg += " in %s" % rest
+        return msg
 
     def command_rank(self, nick, channel, rest):
         other_nick = rest.rstrip(":")
         data = RDB.hget("plank:%s" % channel, other_nick)
         if not data:
-            self.msg(channel, "unknown nick %s" % other_nick)
+            return "unknown nick %s" % other_nick
         else:
-            self.msg(channel, "Rank: %s %s" % (other_nick, data))
-        return False
+            return "Rank: %s %s" % (other_nick, data)
 
     def command_ranks(self, nick, channel, rest):
-        print channel
+        if rest:
+            channel = rest.split(" ")[0].strip()
         data = RDB.hgetall("plank:%s" % channel)
         if "_nicks" in data:
             data.pop("_nicks")
         print data
         data = sorted(data.items(), key=lambda nick: int(nick[1]) , reverse=1)
+        msgs = []
         for nick, value in data:
-            self.msg(channel, "%s: %s" % (nick, value))
-        return False
+            msgs.append("%s: %s" % (nick, value))
+        return msgs
 
     def command_nicklist(self, nick, channel, rest):
        key = "plank:%s:nicks" % channel
@@ -251,6 +260,6 @@ class Factory(protocol.ReconnectingClientFactory):
 
     def __init__(self, trigger="!", channels=None, bad=None):
         self.channels = channels or []
-        self.trigger = "!"
+        self.trigger = trigger
         self.badwords = bad or []
 
