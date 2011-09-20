@@ -12,7 +12,7 @@ from bot.client import PlankIRCProtocol
 
 RDB = redis.Redis()
 
-Nick_point_re = re.compile(r"(.*?\w+)([,:\s]*[+-]{2})$")
+Nick_point_re = re.compile(r"([^\s]+?)([,:\s]*[+-]{2})")
 
 URL_re = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
 BAD_WORDS = ["lol", "lmfao"]
