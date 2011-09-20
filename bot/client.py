@@ -106,11 +106,11 @@ class PlankIRCProtocol(irc.IRCClient):
 
         if isinstance(msg, (list, tuple, set)):
             for m in msg:
-                self.msg(target, m)
+                self.msg(target, str(m))
         else:
             if nick:
                 msg = '%s: %s' % (nick, msg)
-            self.msg(target, msg)
+            self.msg(target, str(msg))
 
     def _show_error(self, failure):
         return failure.getErrorMessage()
