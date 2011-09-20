@@ -2,6 +2,7 @@
 
 import re
 import cPickle as pickle
+from random import choice
 
 from lxml import html
 import redis
@@ -60,7 +61,6 @@ PORNWORDS = ['fuck',
              'dick',
              'ass',
 ]
-
 PORN_re = re.compile("|".join(r"\b%s\b" % w for w in PORNWORDS), re.I)
 
 
@@ -79,11 +79,11 @@ class IRCProtocol(PlankIRCProtocol):
         nick = cleanNick(nick)
         RDB.sadd(self.nicklist_key % channel, nick)
         count = RDB.hincrby("plank:%s" % channel, nick, 1)
-        self.me(channel, "gives %s a point comoing to play" % (nick))
+        self.me(channel, "gives %s a point for coming out to play" % (nick))
 
     def handle_kick(self, op, channel, nick, msg):
         count = RDB.hincrby("plank:%s" % channel, cleanNick(op), -1)
-        self.msg(channel, "%s loses a point for being bossy" % op)
+        self.me(channel, "takes a point from %s, and tells them to go sit in the corner. " % op)
 
     def handle_nick_change(self, oldnick, newnick):
         nick = cleanNick(newnick)
@@ -154,7 +154,24 @@ class IRCProtocol(PlankIRCProtocol):
             if nick == author:
                 return False
             if nick.rstrip("_") == self.nickname:
-                self.msg(channel, "thanks but I don't need any stinking points. I once punched Chuck Norris!")
+                if incr < 0:
+                    count = RDB.hincrby("plank:%s" % channel, author, -1)
+                    self.me(channel, "takes a point from %s for trying to take points from a bot! *shakes head*" % author)
+                else:
+                    reasons = [
+                               "I once punched Chuck Norris!",
+                               "I was created to be better then you.",
+                               " .... 42",
+                               "your ugly",
+                               "I had a threesome with your mom and grandma",
+                               "your mom liked it too much last night",
+                               "of rule 34",
+                               "I am a robot and your not, so play safe",
+                               "you like to look at granny porn",
+                               "your argument is invalid",
+                               "you like goats",
+                               ]
+                    self.msg(channel, "I don't accept points from you because %s" % choice(reasons))
                 return
             channel_nicks = RDB.smembers(self.nicklist_key % channel)
             if nick not in channel_nicks:
@@ -172,9 +189,10 @@ class IRCProtocol(PlankIRCProtocol):
                 url = pickle.loads(prob)
                 self.url_points(nick, channel, 1, url['prob'], url['url_type'])
         elif DEGRADED.search(message):
-            print "decgraded word found", channel, nick
-            count = RDB.hincrby("plank:%s" % channel, nick, -1)
-            self.msg(channel, "%s lost a point for saying %s" % (nick, DEGRADED.search(message).group()))
+            words = DEGRADED.findall(message)
+            total = len(words) * -1
+            count = RDB.hincrby("plank:%s" % channel, nick, total)
+            self.msg(channel, "%s lost %s point%s for saying %s" % (nick, total , "s" if total > 1 else "", ", ".join(words) ))
 
     def command_help(self, nick, channel, rest):
         msgs = [
@@ -184,6 +202,7 @@ class IRCProtocol(PlankIRCProtocol):
             "!myrank: find out your ranking",
             "!rank nick: show the rank for this nick",
             "!ranks: show all ranking for this channel",
+            "!ranklist: show a list of ranks for the channel ",
             "!joke: grab random joke from store",
             "!joketotal: return the number of jokes stored",
             "!players: list the players with points",
@@ -227,11 +246,14 @@ class IRCProtocol(PlankIRCProtocol):
 
     def command_rank(self, nick, channel, rest):
         other_nick = rest.rstrip(":")
+        if not other_nick:
+            other_nick = nick
         data = RDB.hget("plank:%s" % channel, other_nick)
         if not data:
             return "unknown nick %s" % other_nick
         else:
-            return "Rank: %s %s" % (other_nick, data)
+            return "Rank: %s %s" % (other_nick if other_nick != nick else "", data)
+
 
     def command_ranks(self, nick, channel, rest):
         if rest:
@@ -245,6 +267,10 @@ class IRCProtocol(PlankIRCProtocol):
         for nick, value in data:
             msgs.append("%s: %s" % (nick, value))
         return msgs
+
+    def command_ranklist(self, nick, channel, rest):
+        msgs = self.command_ranks(nick, channel, rest)
+        return "; ".join(msgs)
 
     def command_nicklist(self, nick, channel, rest):
        key = "plank:%s:nicks" % channel
